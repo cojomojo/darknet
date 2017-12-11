@@ -1,7 +1,7 @@
 GPU=1
 CUDNN=1
 OPENCV=1
-PYLON=0
+PYLON=1
 DEBUG=0
 OPENMP=0
 LIBSO=0
@@ -43,6 +43,12 @@ COMMON+= -DOPENCV
 CFLAGS+= -DOPENCV
 LDFLAGS+= `pkg-config --libs opencv`
 COMMON+= `pkg-config --cflags opencv`
+endif
+
+ifeq ($(PYLON), 1)
+COMMON+= -DPYLON
+CFLAGS+= -DPYLON -I/opt/pylon5/include
+LDFLAGS+= -L/opt/pylon5/lib64
 endif
 
 ifeq ($(OPENMP), 1)
