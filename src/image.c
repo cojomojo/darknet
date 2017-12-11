@@ -633,6 +633,7 @@ image get_image_from_stream(CvCapture *cap)
     return im;
 }
 
+#ifndef PYLON
 image get_image_from_stream_resize(CvCapture *cap, int w, int h, IplImage** in_img)
 {
 	IplImage* src = cvQueryFrame(cap);
@@ -646,15 +647,14 @@ image get_image_from_stream_resize(CvCapture *cap, int w, int h, IplImage** in_i
 	rgbgr_image(im);
 	return im;
 }
-
-#ifdef PYLON
+#else
 image get_image_from_stream_resize(IplImage** src, int w, int h, IplImage** in_img)
 {
 	if (!src) return make_empty_image(0, 0, 0);
 	IplImage* new_img = cvCreateImage(cvSize(w, h), IPL_DEPTH_8U, 3);
-	*in_img = cvCreateImage(cvSize(src->width, src->height), IPL_DEPTH_8U, 3);
-	cvResize(src, *in_img, CV_INTER_LINEAR);
-	cvResize(src, new_img, CV_INTER_LINEAR);
+	*in_img = cvCreateImage(cvSize((*src)->width, (*src)->height), IPL_DEPTH_8U, 3);
+	cvResize(*src, *in_img, CV_INTER_LINEAR);
+	cvResize(*src, new_img, CV_INTER_LINEAR);
 	image im = ipl_to_image(new_img);
 	cvReleaseImage(&new_img);
 	rgbgr_image(im);

@@ -7,7 +7,6 @@
 #include "box.h"
 #include "image.h"
 #include "demo.h"
-#include "basler.hpp"
 
 #ifdef WIN32
 #include <time.h>
@@ -52,7 +51,14 @@ static IplImage* ipl_images[FRAMES];
 static float *avg;
 
 void draw_detections_cv(IplImage* show_img, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes);
+
+#ifdef PYLON
+image get_image_from_stream_resize(IplImage **src, int w, int h, IplImage** in_img);
+void capture_from_baslercam(IplImage *basler_img);
+#else
 image get_image_from_stream_resize(CvCapture *cap, int w, int h, IplImage** in_img);
+#endif
+
 #ifdef PYLON
 IplImage basler_img;
 IplImage* src_img;
@@ -65,7 +71,7 @@ IplImage* show_img;
 void *fetch_in_thread(void *ptr)
 {
     //in = get_image_from_stream(cap);
-	in = get_image_from_stream_resize(src_img, net.w, net.h, &in_img);
+	in = get_image_from_stream_resize(&src_img, net.w, net.h, &in_img);
     if(!in.data){
         error("Stream closed.");
     }
@@ -161,14 +167,18 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
         cap = cvCaptureFromFile(filename);
     } else{
         #ifdef PYLON
-        capture_from_baslercam();
-        src_image = &basler_img;
+        capture_from_baslercam(&basler_img);
+        src_img = &basler_img;
         #else
         cap = cvCaptureFromCAM(cam_index);
         #endif
     }
-
+    
+    #ifdef PYLON
+    if(!src_img) error("Couldn't connect to webcam.\n");
+    #else
     if(!cap) error("Couldn't connect to webcam.\n");
+    #endif
 
     layer l = net.layers[net.n-1];
     int j;
