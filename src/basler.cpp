@@ -6,6 +6,7 @@
 #include "opencv2/highgui/highgui_c.h"
 #include "opencv2/imgproc/imgproc_c.h"
 #include <pylon/PylonIncludes.h>
+#include <pylon/usb/BaslerUsbInstantCamera.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,12 +16,13 @@ using namespace Pylon;
 
 void capture_from_baslercam(IplImage *basler_img)
 {
-    Pylon::PylonAutoInitTerm autoInitTerm;
+    PylonAutoInitTerm autoInitTerm;
 
     try
     {
         CBaslerUsbInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());
         std::cout << "Using device " << camera.GetDeviceInfo().GetModelName() << std::endl;
+	camera.RegisterConfiguration(new CAcquireContinuousConfiguration, RegistrationMode_ReplaceAll, Cleanup_Delete);
 
         // Get a camera nodemap in order to access camera parameters
         GenApi::INodeMap& nodemap = camera.GetNodeMap();
@@ -39,7 +41,7 @@ void capture_from_baslercam(IplImage *basler_img)
         CGrabResultPtr ptrGrabResult;
         int grabbedImages = 0;
 
-        camera.StartGrabbing(5, GrabStrategy_LatestImageOnly);
+        camera.StartGrabbing(1, GrabStrategy_LatestImageOnly);
 
         while (camera.IsGrabbing())
         {
@@ -60,9 +62,9 @@ void capture_from_baslercam(IplImage *basler_img)
             }
         }
     }
-    catch (...) 
+    catch (const GenericException &e) 
     {
-	// do nothing
+	std::cerr << e.GetDescription() << std::endl;
     }
 }
 
@@ -70,4 +72,4 @@ void capture_from_baslercam(IplImage *basler_img)
 }
 #endif
 
-#endifpylon api co
+#endif
