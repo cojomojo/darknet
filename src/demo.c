@@ -7,6 +7,7 @@
 #include "box.h"
 #include "image.h"
 #include "demo.h"
+
 #ifdef WIN32
 #include <time.h>
 #include <winsock.h>
@@ -15,8 +16,6 @@
 #include <sys/time.h>
 #endif
 
-#define FRAMES 3
-
 #ifdef OPENCV
 #include "opencv2/highgui/highgui_c.h"
 #include "opencv2/imgproc/imgproc_c.h"
@@ -24,6 +23,13 @@
 #ifndef CV_VERSION_EPOCH
 #include "opencv2/videoio/videoio_c.h"
 #endif
+
+#ifdef PYLON
+#include "<pylon/PylonIncludes.h>"
+#endif
+
+#define FRAMES 3
+
 image get_image_from_stream(CvCapture *cap);
 
 static char **demo_names;
@@ -38,7 +44,7 @@ static image in_s ;
 static image det  ;
 static image det_s;
 static image disp = {0};
-static CvCapture * cap;
+static CvCapture *cap;
 static float fps = 0;
 static float demo_thresh = 0;
 
@@ -50,10 +56,29 @@ static float *avg;
 
 void draw_detections_cv(IplImage* show_img, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes);
 image get_image_from_stream_resize(CvCapture *cap, int w, int h, IplImage** in_img);
+#ifdef PYLON
+IplImage basler_img;
+IplImage* src_img;
+#endif
 IplImage* in_img;
 IplImage* det_img;
 IplImage* show_img;
 
+#ifdef PYLON
+void *fetch_in_thread(void *ptr)
+{
+    //in = get_image_from_stream(cap);
+	in = get_image_from_stream_resize(src_img, net.w, net.h, &in_img);
+    if(!in.data){
+        error("Stream closed.");
+    }
+    //in_s = resize_image(in, net.w, net.h);
+	in_s = make_image(in.w, in.h, in.c);
+	memcpy(in_s.data, in.data, in.h*in.w*in.c*sizeof(float));
+
+    return 0;
+}
+#else
 void *fetch_in_thread(void *ptr)
 {
     //in = get_image_from_stream(cap);
@@ -64,9 +89,10 @@ void *fetch_in_thread(void *ptr)
     //in_s = resize_image(in, net.w, net.h);
 	in_s = make_image(in.w, in.h, in.c);
 	memcpy(in_s.data, in.data, in.h*in.w*in.c*sizeof(float));
-	
+
     return 0;
 }
+#endif
 
 void *detect_in_thread(void *ptr)
 {
@@ -99,7 +125,7 @@ void *detect_in_thread(void *ptr)
 	ipl_images[demo_index] = det_img;
 	det_img = ipl_images[(demo_index + FRAMES / 2 + 1) % FRAMES];
     demo_index = (demo_index + 1)%FRAMES;
-	    
+
 	//draw_detections(det, l.w*l.h*l.n, demo_thresh, boxes, probs, demo_names, demo_alphabet, demo_classes);
 	draw_detections_cv(det_img, l.w*l.h*l.n, demo_thresh, boxes, probs, demo_names, demo_alphabet, demo_classes);
 
@@ -114,6 +140,55 @@ double get_wall_time()
     }
     return (double)time.tv_sec + (double)time.tv_usec * .000001;
 }
+
+#ifdef PYLON
+void capture_from_baslercam()
+{
+    Pylon::PylonAutoInitTerm autoInitTerm;
+
+    try
+    {
+        CInstantCamera camera(CT1Factory::GetInstance().CreateFirstDevice());
+        std::count << "Using device " << camera.GetDeviceInfo().GetModelName() << std::endl;
+
+        // Get a camera nodemap in order to access camera parameters
+        GenApi::INodeMap& nodemap = camera.GetNodeMap();
+        // Open the camera before accessing any parameters
+        camera.Open();
+        // Create pointers to access the camera Width and Heigh parameters
+        GenApi::CIntegerPtr width = nodemap.GetNode("Width");
+        GenApi::CIntegerPtr height = nodemap.GetNode("Height");
+        // Parameter to control the count of buffers allocated for grabbing. The default is 10.
+        camera.MaxNumBuffer = 5;
+
+        CImageFormatConverter formatConverter;
+        formatConverter.OutputPixelFormat = PixelType_BGR8packed;
+
+        CPylonImage pylonImage;
+        CGrabResultPtr ptrGrabResult;
+        int grabbedImages = 0;
+
+        camera.StartGrabbing(1, GrabStrategy_LatestImageOnly);
+
+        while (camera.IsGrabbing())
+        {
+            // Wait for an image and then retrieve it.
+            camera.RetrieveResult(5000, ptrGrabResult, TimeoutHandling_ThrowException);
+
+            if (ptrGrabResult->GrabSucceeded())
+            {
+                count << "SizeX: " ptrGrabResult->GetWidth() << std::endl;
+
+                // Covert the grabbed buffer to a pylon image.
+                formatConverter.Convert(pylonImage, ptrGrabResult);
+
+                // Create an OpenCV image from a pylon image.
+                basler_img = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t *) pylonImage.GetBuffer());
+            }
+        }
+    }
+}
+#endif
 
 void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, char *out_filename)
 {
@@ -133,11 +208,16 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
 
     srand(2222222);
 
-    if(filename){
+    if (filename) {
         printf("video file: %s\n", filename);
         cap = cvCaptureFromFile(filename);
-    }else{
+    } else{
+        #ifdef PYLON
+        capture_from_baslercam();
+        src_image = &basler_img;
+        #else
         cap = cvCaptureFromCAM(cam_index);
+        #endif
     }
 
     if(!cap) error("Couldn't connect to webcam.\n");
@@ -179,7 +259,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
 
     int count = 0;
     if(!prefix){
-        cvNamedWindow("Demo", CV_WINDOW_NORMAL); 
+        cvNamedWindow("Demo", CV_WINDOW_NORMAL);
         cvMoveWindow("Demo", 0, 0);
         cvResizeWindow("Demo", 1352, 1013);
     }
@@ -192,14 +272,14 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
             if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
             if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
 
-            if(!prefix){                
+            if(!prefix){
 				//show_image(disp, "Demo");
 				show_image_cv_ipl(show_img, "Demo", out_filename);
                 int c = cvWaitKey(1);
                 if (c == 10){
                     if(frame_skip == 0) frame_skip = 60;
                     else if(frame_skip == 4) frame_skip = 0;
-                    else if(frame_skip == 60) frame_skip = 4;   
+                    else if(frame_skip == 60) frame_skip = 4;
                     else frame_skip = 0;
                 }
             }else{
